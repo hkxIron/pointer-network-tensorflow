@@ -48,6 +48,13 @@ def generate_one_example(n_nodes, rng):
   solutions = solve_tsp_dynamic(nodes)
   return nodes, solutions
 
+"""
+示例数据如:
+
+0.607122483376 0.664447268879 0.953592710256 0.0215187266035 0.757626025721 0.921024039084 0.58637621508 0.433565269284 0.786836511244 0.0529589389174 0.0160877248199 0.581436054061 0.496714219523 0.633570685486 0.227776956853 0.971433036801 0.665490132665 0.074330503455 0.38355557137 0.10439215522 output 1 3 8 6 2 5 9 10 4 7 1 
+0.93053373497 0.747036450998 0.277411711099 0.93825232871 0.79459230592 0.794284772785 0.96194634906 0.261223286824 0.0707955411585 0.384301925429 0.0970348242202 0.796305967116 0.452332110479 0.412415030566 0.341412603409 0.566108471934 0.247171696984 0.890328553326 0.42997841152 0.232969556152 output 1 3 2 9 6 5 8 7 10 4 1 
+0.686711879502 0.0879416814813 0.443054163982 0.277818042302 0.494768607889 0.985289269001 0.559705861867 0.861138032601 0.532883570753 0.351912899644 0.712560683115 0.199273065174 0.554681363071 0.657214249691 0.90998623012 0.277140700191 0.931064195448 0.639287329779 0.398927025212 0.406909068041 output 1 6 8 9 3 4 7 10 2 5 1 
+"""
 def read_paper_dataset(paths, max_length):
   x, y = [], []
   for path in paths:
@@ -55,6 +62,7 @@ def read_paper_dataset(paths, max_length):
     length = max(re.findall('\d+', path))
     with open(path) as f:
       for l in tqdm(f):
+        # 使用output分割数据
         inputs, outputs = l.split(' output ')
         x.append(np.array(inputs.split(), dtype=np.float32).reshape([-1, 2]))
         y.append(np.array(outputs.split(), dtype=np.int32)[:-1]) # skip the last one
@@ -154,7 +162,7 @@ class TSPDataLoader(object):
       args = (sess, name, self.input_ops, self.target_ops, self.enqueue_ops, self.coord)
       t = threading.Thread(target=load_and_enqueue, args=args)
       t.start()
-      self.threads.append(t)
+      self.threads.append(t) # 这里还用多线程压入数据
       tf.logging.info("Thread for [{}] start".format(name))
 
   def stop_input_queue(self):

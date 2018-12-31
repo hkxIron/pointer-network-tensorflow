@@ -1,5 +1,7 @@
 import tensorflow as tf
 from tensorflow.contrib.framework import arg_scope
+# https://github.com/princewen/tensorflow_practice/blob/master/RL/myPtrNetwork/model.py
+# https://www.jianshu.com/p/2ad389e91467
 
 from layers import *
 
@@ -37,11 +39,17 @@ class Model(object):
     # inputs
     ##############
 
-    self.is_training = tf.placeholder_with_default(
+    self.is_training = tf.placeholder_with_default( # 带有默认值的placeholder
         tf.constant(False, dtype=tf.bool),
         shape=(), name='is_training'
     )
 
+    """
+    self.enc_seq = tf.placeholder(dtype=tf.float32,shape=[self.batch_size,self.max_enc_length,2],name='enc_seq')
+    self.target_seq = tf.placeholder(dtype=tf.int32,shape=[self.batch_size,self.max_dec_length],name='target_seq')
+    self.enc_seq_length = tf.placeholder(dtype=tf.int32,shape=[self.batch_size],name='enc_seq_length')
+    self.target_seq_length = tf.placeholder(dtype=tf.int32,shape=[self.batch_size],name='target_seq_length')
+    """
     self.enc_inputs, self.dec_targets, self.enc_seq_length, self.dec_seq_length, self.mask = \
         smart_cond(
             self.is_training,
@@ -96,16 +104,34 @@ class Model(object):
     tf.logging.info("Create a model..")
     self.global_step = tf.Variable(0, trainable=False)
 
+    """
+    我们要对输入进行处理，将输入转换为embedding，embedding的长度和lstm的隐藏神经元个数相同。
+    这里指的注意的就是 tf.nn.conv1d函数了，这个函数首先会对输入进行一个扩展，然后再调用tf.nn.conv2d进行二维卷积。关于该函数的过程可以看代码中的注释或者看该函数的源代码。
+    
+    input_dim 是 2，hidden_dim 是 lstm的隐藏层的数量
+    
+    # 将 输入转换成embedding,一下是根据源码的转换过程：
+    # enc_seq :[batch_size,seq_length,2] -> [batch_size,1,seq_length,2]，在第一维进行维数扩展, 2是x,y坐标, 看成NHWC
+    # input_embed : [1,2,256] -> [1,1,2,256] # 在第0维进行维数扩展, 作为filters=[height,width, in_channel, out_channel]
+    # 所以卷积后的输出为: [batch, 1, seq_length, out_channel]
+    
+    # tf.nn.conv1d首先将input和filter进行填充，然后进行二维卷积，因此卷积之后维度为batch * 1 * seq_length * 256
+    # 最后还有一步squeeze的操作，从tensor中删除所有大小是1的维度，所以最后的维数为batch * seq_length * 256
+    # 即将输入数据:[batch, seq_length, input_dim=2] -> 高维[batch, seq_length, hidden_dim=256], 其实就相当于最后一个维度全连接而己
+    """
+    # input_embed: [1, input_dim, hidden_dim]
     input_embed = tf.get_variable(
         "input_embed", [1, self.input_dim, self.hidden_dim],
         initializer=self.initializer)
-
+    # embeded_enc_inputs:[batch, seq_length, hidden_dim=256]
     with tf.variable_scope("encoder"):
       self.embeded_enc_inputs = tf.nn.conv1d(
-          self.enc_inputs, input_embed, 1, "VALID")
+          values=self.enc_inputs, filters=input_embed, stride=1, padding="VALID")
 
+    # -----------------encoder------------------
     batch_size = tf.shape(self.enc_inputs)[0]
     with tf.variable_scope("encoder"):
+      # 构建一个多层的LSTM
       self.enc_cell = LSTMCell(
           self.hidden_dim,
           initializer=self.initializer)
@@ -113,37 +139,47 @@ class Model(object):
       if self.num_layers > 1:
         cells = [self.enc_cell] * self.num_layers
         self.enc_cell = MultiRNNCell(cells)
+      # 初始化rnn
       self.enc_init_state = trainable_initial_state(
           batch_size, self.enc_cell.state_size)
 
-      # self.encoder_outputs : [None, max_time, output_size]
+      # self.encoder_outputs : [batch_size, max_sequence, hidden_dim]
       self.enc_outputs, self.enc_final_states = tf.nn.dynamic_rnn(
           self.enc_cell, self.embeded_enc_inputs,
           self.enc_seq_length, self.enc_init_state)
 
-      self.first_decoder_input = tf.expand_dims(trainable_initial_state(
-          batch_size, self.hidden_dim, name="first_decoder_input"), 1)
+      # 给最开头添加一个结束标记，同时这个标记也将作为decoder的初始输入
+      # first_decoder_input:batch_size * 1 * hidden_dim
+      self.first_decoder_input = tf.expand_dims(
+          trainable_initial_state(batch_size, self.hidden_dim, name="first_decoder_input"),
+          axis=1)
+      # enc_outputs:batch_size * max_sequence + 1 * hidden_dim
       if self.use_terminal_symbol:
         # 0 index indicates terminal
         self.enc_outputs = concat_v2(
             [self.first_decoder_input, self.enc_outputs], axis=1)
 
+    # -----------------decoder 训练--------------------
     with tf.variable_scope("decoder"):
+        # [[3,1,2], [2,3,1]] -> [[[0, 3], [1, 1], [2, 2]],
+        #                        [[0, 2], [1, 3], [2, 1]]]
       self.idx_pairs = index_matrix_to_pairs(self.dec_targets)
       self.embeded_dec_inputs = tf.stop_gradient(
           tf.gather_nd(self.enc_outputs, self.idx_pairs))
 
       if self.use_terminal_symbol:
-        tiled_zero_idxs = tf.tile(tf.zeros(
-            [1, 1], dtype=tf.int32), [batch_size, 1], name="tiled_zero_idxs")
+        # 给target最后一维增加结束标记,数据都是从1开始的，所以结束也是回到1，所以结束标记为1
+        # tiled_zero_idxs:[batch, 1]
+        tiled_zero_idxs = tf.tile(tf.zeros([1, 1], dtype=tf.int32),
+                                  [batch_size, 1],
+                                  name="tiled_zero_idxs")
         self.dec_targets = concat_v2([self.dec_targets, tiled_zero_idxs], axis=1)
 
-      self.embeded_dec_inputs = concat_v2(
-          [self.first_decoder_input, self.embeded_dec_inputs], axis=1)
+      # 如果使用了结束标记的话，要给encoder的输出拼上开始状态，同时给decoder的输入拼上开始状态
+      self.embeded_dec_inputs = concat_v2([self.first_decoder_input, self.embeded_dec_inputs], axis=1)
 
-      self.dec_cell = LSTMCell(
-          self.hidden_dim,
-          initializer=self.initializer)
+      # 建立一个多层的lstm网络
+      self.dec_cell = LSTMCell( self.hidden_dim, initializer=self.initializer)
 
       if self.num_layers > 1:
         cells = [self.dec_cell] * self.num_layers
@@ -151,10 +187,11 @@ class Model(object):
 
       self.dec_pred_logits, _, _ = decoder_rnn(
           self.dec_cell, self.embeded_dec_inputs, 
-          self.enc_outputs, self.enc_final_states,
+          self.enc_outputs, self.enc_final_states, # encoder的最后的状态作为decoder的初始状态
           self.dec_seq_length, self.hidden_dim,
           self.num_glimpse, batch_size, is_train=True,
           initializer=self.initializer)
+
       self.dec_pred_prob = tf.nn.softmax(
           self.dec_pred_logits, 2, name="dec_pred_prob")
       self.dec_pred = tf.argmax(

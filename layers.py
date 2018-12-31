@@ -1,7 +1,8 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn
 from tensorflow.contrib import layers
-from tensorflow.contrib import seq2seq
+#from tensorflow.contrib import seq2seq
+from tensorflow.contrib import legacy_seq2seq
 from tensorflow.python.util import nest
 
 try:
@@ -34,19 +35,24 @@ def decoder_rnn(cell, inputs,
                 end_of_sequence_id=0, initializer=None,
                 max_length=None):
   with tf.variable_scope("decoder_rnn") as scope:
+    """
+       :param ref: encoder的输出
+       :param query: decoder的输出
+       :param with_softmax:
+       :param scope:
+       :return:
+    """
     def attention(ref, query, with_softmax, scope="attention"):
       with tf.variable_scope(scope):
-        W_ref = tf.get_variable(
-            "W_ref", [1, hidden_dim, hidden_dim], initializer=initializer)
-        W_q = tf.get_variable(
-            "W_q", [hidden_dim, hidden_dim], initializer=initializer)
-        v = tf.get_variable(
-            "v", [hidden_dim], initializer=initializer)
-
-        encoded_ref = tf.nn.conv1d(ref, W_ref, 1, "VALID", name="encoded_ref")
+        W_ref = tf.get_variable( "W_ref", [1, hidden_dim, hidden_dim], initializer=initializer)
+        W_q = tf.get_variable( "W_q", [hidden_dim, hidden_dim], initializer=initializer)
+        v = tf.get_variable( "v", [hidden_dim], initializer=initializer)
+        # ref:batch*max_sequence*hidden, w_ref:[1, hidden, hidden]
+        encoded_ref = tf.nn.conv1d(ref, filters=W_ref, stride=1, padding="VALID", name="encoded_ref")
         encoded_query = tf.expand_dims(tf.matmul(query, W_q, name="encoded_query"), 1)
         tiled_encoded_Query = tf.tile(
-            encoded_query, [1, tf.shape(encoded_ref)[1], 1], name="tiled_encoded_query")
+          encoded_query, [1, tf.shape(encoded_ref)[1], 1],
+          name="tiled_encoded_query")
         scores = tf.reduce_sum(v * tf.tanh(encoded_ref + encoded_query), [-1])
 
         if with_softmax:
@@ -56,7 +62,7 @@ def decoder_rnn(cell, inputs,
 
     def glimpse(ref, query, scope="glimpse"):
       p = attention(ref, query, with_softmax=True, scope=scope)
-      alignments = tf.expand_dims(p, 2)
+      alignments = tf.expand_dims(p, axis=2)
       return tf.reduce_sum(alignments * ref, [1])
 
     def output_fn(ref, query, num_glimpse):
@@ -68,7 +74,7 @@ def decoder_rnn(cell, inputs,
         return attention(ref, query, with_softmax=False, scope="attention")
 
     def input_fn(sampled_idx):
-      return tf.stop_gradient(
+      return tf.stop_gradient( # 不要对tensor产生梯度
           tf.gather_nd(enc_outputs, index_matrix_to_pairs(sampled_idx)))
 
     if is_train:
@@ -112,7 +118,7 @@ def trainable_initial_state(batch_size, state_size,
   else:
     flat_initializer = tuple(tf.zeros_initializer for initializer in flat_state_size)
 
-  names = ["{}_{}".format(name, i) for i in xrange(len(flat_state_size))]
+  names = ["{}_{}".format(name, i) for i in range(len(flat_state_size))]
   tiled_states = []
 
   for name, size, init in zip(names, flat_state_size, flat_initializer):

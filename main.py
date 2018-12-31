@@ -36,4 +36,4 @@ def main(_):
 
 if __name__ == "__main__":
   config, unparsed = get_config()
-  tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
+  tf.app.run(main=main, argv=[sys.argv[0]] + unparsed) # 运行main函数

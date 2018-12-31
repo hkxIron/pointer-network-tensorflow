@@ -8,6 +8,7 @@ arg_lists = []
 parser = argparse.ArgumentParser()
 
 def add_argument_group(name):
+  # 添加参数组
   arg = parser.add_argument_group(name)
   arg_lists.append(arg)
   return arg
