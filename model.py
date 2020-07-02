@@ -45,7 +45,7 @@ class Model(object):
     )
 
     """
-    self.enc_seq = tf.placeholder(dtype=tf.float32,shape=[self.batch_size,self.max_enc_length,2],name='enc_seq')
+    self.enc_seq = tf.placeholder(dtype=tf.float32,shape=[self.batch_size,self.max_enc_length,input_dim=2],name='enc_seq')
     self.target_seq = tf.placeholder(dtype=tf.int32,shape=[self.batch_size,self.max_dec_length],name='target_seq')
     self.enc_seq_length = tf.placeholder(dtype=tf.int32,shape=[self.batch_size],name='enc_seq_length')
     self.target_seq_length = tf.placeholder(dtype=tf.int32,shape=[self.batch_size],name='target_seq_length')
@@ -110,8 +110,8 @@ class Model(object):
     
     input_dim 是 2，hidden_dim 是 lstm的隐藏层的数量
     
-    # 将 输入转换成embedding,一下是根据源码的转换过程：
-    # enc_seq :[batch_size,seq_length,2] -> [batch_size,1,seq_length,2]，在第一维进行维数扩展, 2是x,y坐标, 看成NHWC
+    # 将 输入转换成embedding,下面是根据源码的转换过程：
+    # enc_seq :[batch_size,seq_length,2] -> [batch_size,1,seq_length,2]，在第一维进行维数扩展, 2是二维的x,y坐标, 看成NHWC
     # input_embed : [1,2,256] -> [1,1,2,256] # 在第0维进行维数扩展, 作为filters=[height,width, in_channel, out_channel]
     # 所以卷积后的输出为: [batch, 1, seq_length, out_channel]
     
@@ -119,12 +119,15 @@ class Model(object):
     # 最后还有一步squeeze的操作，从tensor中删除所有大小是1的维度，所以最后的维数为batch * seq_length * 256
     # 即将输入数据:[batch, seq_length, input_dim=2] -> 高维[batch, seq_length, hidden_dim=256], 其实就相当于最后一个维度全连接而己
     """
-    # input_embed: [1, input_dim, hidden_dim]
+    # input_embed: [filter_width=1, input_channel=input_dim, output_channel=hidden_dim]
     input_embed = tf.get_variable(
         "input_embed", [1, self.input_dim, self.hidden_dim],
         initializer=self.initializer)
-    # embeded_enc_inputs:[batch, seq_length, hidden_dim=256]
+    # enc_inputs: [batch, max_enc_length, input_channel=2] => [batch, in_height=1, in_width, in_channels=2]
+    # input_embed: [filter_width=1, input_channel=input_dim, output_channel=hidden_dim] => [in_height=1, filter_width=1, in_channels=input_dim, out_channels=hidden_dim]
+    # embeded_enc_inputs: [batch, seq_length=max_enc_length, hidden_dim=256]
     with tf.variable_scope("encoder"):
+      # 这里的conv1d可以换成embedding_lookup的
       self.embeded_enc_inputs = tf.nn.conv1d(
           values=self.enc_inputs, filters=input_embed, stride=1, padding="VALID")
 
