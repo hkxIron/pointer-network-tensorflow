@@ -123,11 +123,14 @@ class Model(object):
     input_embed = tf.get_variable(
         "input_embed", [1, self.input_dim, self.hidden_dim],
         initializer=self.initializer)
-    # enc_inputs: [batch, max_enc_length, input_channel=2] => [batch, in_height=1, in_width, in_channels=2]
-    # input_embed: [filter_width=1, input_channel=input_dim, output_channel=hidden_dim] => [in_height=1, filter_width=1, in_channels=input_dim, out_channels=hidden_dim]
-    # embeded_enc_inputs: [batch, seq_length=max_enc_length, hidden_dim=256]
+    # enc_inputs: [batch, max_enc_length, input_channel=2] => [batch, in_height=1, in_width=seq_length, in_channels=input_dim=2]
+    # input_embed: [filter_width=1, input_channel=input_dim=2, output_channel=hidden_dim]
+    #           => [filter_height=1, filter_width=1, in_channels=input_dim=2, out_channels=hidden_dim]
+    # conv2d: out_size = (img_size+2*pad-filter_size)//stride+1 = (img_size-1)//1+1=img_size,即保持原来大小
+    # embeded_enc_inputs: [batch, out_height=1, out_width=seq_length=max_enc_length, output_channel=hidden_dim=256]
+    #                  => [batch, seq_length=max_enc_length, hidden_dim=256]
     with tf.variable_scope("encoder"):
-      # 这里的conv1d可以换成embedding_lookup的
+      # 可以看出来,作者选用的是1*1的卷积,即基于单像素在不同通道上的卷积,两个通道分别代表[x,y]坐标
       self.embeded_enc_inputs = tf.nn.conv1d(
           values=self.enc_inputs, filters=input_embed, stride=1, padding="VALID")
 
@@ -136,39 +139,49 @@ class Model(object):
     with tf.variable_scope("encoder"):
       # 构建一个多层的LSTM
       self.enc_cell = LSTMCell(
-          self.hidden_dim,
+          self.hidden_dim, # hidden_dim:256
           initializer=self.initializer)
 
       if self.num_layers > 1:
-        cells = [self.enc_cell] * self.num_layers
+        cells = [self.enc_cell] * self.num_layers # num_layers=1,代表有多少层lstm layer
         self.enc_cell = MultiRNNCell(cells)
       # 初始化rnn
-      self.enc_init_state = trainable_initial_state(
-          batch_size, self.enc_cell.state_size)
+      self.enc_init_state = trainable_initial_state(batch_size, self.enc_cell.state_size)
 
-      # self.encoder_outputs : [batch_size, max_sequence, hidden_dim]
+      # embeded_enc_inputs: [batch, seq_length=max_enc_length, hidden_dim=256]
+      # self.encoder_outputs = output_all_hidden_states: [batch_size, seq_length, hidden_dim]
+      # self.enc_final_states = last_cell_and_hidden_state: {c: [batch_size, hidden_size], h:[batch_size, hidden_size]}
       self.enc_outputs, self.enc_final_states = tf.nn.dynamic_rnn(
-          self.enc_cell, self.embeded_enc_inputs,
-          self.enc_seq_length, self.enc_init_state)
+          self.enc_cell,
+          self.embeded_enc_inputs,
+          self.enc_seq_length,
+          self.enc_init_state)
 
-      # 给最开头添加一个结束标记，同时这个标记也将作为decoder的初始输入
-      # first_decoder_input:batch_size * 1 * hidden_dim
+      # 给最开头添加一个开始标记SOS，同时这个标记也将作为decoder的初始输入
+      # first_decoder_input:[batch_size,1,hidden_dim]
       self.first_decoder_input = tf.expand_dims(
           trainable_initial_state(batch_size, self.hidden_dim, name="first_decoder_input"),
           axis=1)
-      # enc_outputs:batch_size * max_sequence + 1 * hidden_dim
+
       if self.use_terminal_symbol:
         # 0 index indicates terminal
-        self.enc_outputs = concat_v2(
-            [self.first_decoder_input, self.enc_outputs], axis=1)
+        # first_decoder_input:[batch_size,1,hidden_dim]
+        # encoder_outputs: [batch_size, seq_length, hidden_dim]
+        #  => [batch_size, 1+seq_length, hidden_dim]
+        self.enc_outputs = concat_v2([self.first_decoder_input, self.enc_outputs], axis=1)
 
     # -----------------decoder 训练--------------------
     with tf.variable_scope("decoder"):
-        # [[3,1,2], [2,3,1]] -> [[[0, 3], [1, 1], [2, 2]],
-        #                        [[0, 2], [1, 3], [2, 1]]]
+      # [[3,1,2], [2,3,1]] -> [[[0, 3], [1, 1], [2, 2]],
+      #                        [[0, 2], [1, 3], [2, 1]]]
+      # dec_targets:[batch_size, max_dec_length]
+      # idx_paris: [batch_size, max_dec_length, 2]
       self.idx_pairs = index_matrix_to_pairs(self.dec_targets)
-      self.embeded_dec_inputs = tf.stop_gradient(
-          tf.gather_nd(self.enc_outputs, self.idx_pairs))
+
+      # encoder_outputs: [batch_size, 1+seq_length, hidden_dim]
+      # idx_paris:       [batch_size, max_dec_length, 2]
+      # embedd_dec_inputs: [batch_size, ]
+      self.embeded_dec_inputs = tf.stop_gradient(tf.gather_nd(self.enc_outputs, self.idx_pairs)) # 此处没有梯度
 
       if self.use_terminal_symbol:
         # 给target最后一维增加结束标记,数据都是从1开始的，所以结束也是回到1，所以结束标记为1

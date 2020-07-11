@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn
 from tensorflow.contrib import layers
-#from tensorflow.contrib import seq2seq
+from tensorflow.contrib import seq2seq
 from tensorflow.contrib import legacy_seq2seq
 from tensorflow.python.util import nest
 
@@ -140,6 +140,16 @@ def index_matrix_to_pairs(index_matrix):
   rank = len(index_matrix.get_shape())
   if rank == 2:
     replicated_first_indices = tf.tile(
-        tf.expand_dims(replicated_first_indices, dim=1),
+        tf.expand_dims(replicated_first_indices, dim=1), # :[[0, 1]]
         [1, tf.shape(index_matrix)[1]])
   return tf.stack([replicated_first_indices, index_matrix], axis=rank)
+
+
+if __name__=="__main__":
+  index_matrix = tf.constant([[3,1,2],
+                              [2,3,1]
+                             ])
+
+  with tf.Session() as sess:
+    out_matrix = sess.run(index_matrix)
+    print(out_matrix)
