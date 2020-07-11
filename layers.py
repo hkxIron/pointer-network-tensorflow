@@ -151,5 +151,5 @@ if __name__=="__main__":
                              ])
 
   with tf.Session() as sess:
-    out_matrix = sess.run(index_matrix)
+    out_matrix = sess.run(index_matrix_to_pairs(index_matrix))
     print(out_matrix)
