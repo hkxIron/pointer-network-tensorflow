@@ -1,3 +1,5 @@
+# 该模型跑不起来,因为import包有问题
+
 import sys
 import numpy as np
 import tensorflow as tf

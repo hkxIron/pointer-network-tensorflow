@@ -165,7 +165,7 @@ class Model(object):
 
       if self.use_terminal_symbol:
         # 0 index indicates terminal
-        # first_decoder_input:[batch_size,1,hidden_dim]
+        # first_decoder_input: [batch_size,1,hidden_dim]
         # encoder_outputs: [batch_size, seq_length, hidden_dim]
         #  => [batch_size, 1+seq_length, hidden_dim]
         self.enc_outputs = concat_v2([self.first_decoder_input, self.enc_outputs], axis=1)
@@ -202,16 +202,14 @@ class Model(object):
         self.dec_cell = MultiRNNCell(cells)
 
       self.dec_pred_logits, _, _ = decoder_rnn(
-          self.dec_cell, self.embeded_dec_inputs, 
+          self.dec_cell, self.embeded_dec_inputs,
           self.enc_outputs, self.enc_final_states, # encoder的最后的状态作为decoder的初始状态
           self.dec_seq_length, self.hidden_dim,
           self.num_glimpse, batch_size, is_train=True,
           initializer=self.initializer)
 
-      self.dec_pred_prob = tf.nn.softmax(
-          self.dec_pred_logits, 2, name="dec_pred_prob")
-      self.dec_pred = tf.argmax(
-          self.dec_pred_logits, 2, name="dec_pred")
+      self.dec_pred_prob = tf.nn.softmax(self.dec_pred_logits, 2, name="dec_pred_prob")
+      self.dec_pred = tf.argmax(self.dec_pred_logits, 2, name="dec_pred")
 
     with tf.variable_scope("decoder", reuse=True):
       self.dec_inference_logits, _, _ = decoder_rnn(
@@ -221,16 +219,12 @@ class Model(object):
           self.num_glimpse, batch_size, is_train=False,
           initializer=self.initializer,
           max_length=self.max_dec_length + int(self.use_terminal_symbol))
-      self.dec_inference_prob = tf.nn.softmax(
-          self.dec_inference_logits, 2, name="dec_inference_logits")
-      self.dec_inference = tf.argmax(
-          self.dec_inference_logits, 2, name="dec_inference")
+      self.dec_inference_prob = tf.nn.softmax(self.dec_inference_logits, 2, name="dec_inference_logits")
+      self.dec_inference = tf.argmax(self.dec_inference_logits, 2, name="dec_inference")
 
   def _build_optim(self):
-    losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        labels=self.dec_targets, logits=self.dec_pred_logits)
-    inference_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        labels=self.dec_targets, logits=self.dec_inference_logits)
+    losses = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.dec_targets, logits=self.dec_pred_logits)
+    inference_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.dec_targets, logits=self.dec_inference_logits)
 
     def apply_mask(op):
       length = tf.cast(op[:1], tf.int32)
@@ -252,8 +246,7 @@ class Model(object):
     self.target_cross_entropy_losses = losses
     self.total_inference_loss = batch_inference_loss
 
-    self.lr = tf.train.exponential_decay(
-        self.lr_start, self.global_step, self.lr_decay_step,
+    self.lr = tf.train.exponential_decay(self.lr_start, self.global_step, self.lr_decay_step,
         self.lr_decay_rate, staircase=True, name="learning_rate")
 
     optimizer = tf.train.AdamOptimizer(self.lr)
