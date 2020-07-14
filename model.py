@@ -157,7 +157,7 @@ class Model(object):
           self.enc_seq_length,
           self.enc_init_state)
 
-      # 给最开头添加一个开始标记SOS，同时这个标记也将作为decoder的初始输入
+      # 给最开头添加一个开始标记EOS，同时这个标记也将作为decoder的初始输入
       # first_decoder_input:[batch_size,1,hidden_dim]
       self.first_decoder_input = tf.expand_dims(
           trainable_initial_state(batch_size, self.hidden_dim, name="first_decoder_input"),
@@ -168,7 +168,7 @@ class Model(object):
         # first_decoder_input: [batch_size,1,hidden_dim]
         # encoder_outputs: [batch_size, seq_length, hidden_dim]
         #  => [batch_size, 1+seq_length, hidden_dim]
-        self.enc_outputs = concat_v2([self.first_decoder_input, self.enc_outputs], axis=1)
+        self.enc_outputs = concat_v2([self.first_decoder_input, self.enc_outputs], axis=1) # 在encoder output最前面加入EOS
 
     # -----------------decoder 训练--------------------
     with tf.variable_scope("decoder"):
